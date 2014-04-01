@@ -1,0 +1,370 @@
+---------------------------------------Installing the HAProxy ----------------------------------------------
+ Download HAProxy
+              wget http://haproxy.1wt.eu/download/1.4/src/haproxy-1.4.19.tar.gz
+              Extract Haproxy
+              tar -xvzf haproxy-1.4.19.tar.gz
+     2.  Install HAProxy
+              cd haproxy-1.4.19
+              Check the kernel of linux with command 
+              uname -a 
+              Linux ip-10-28-37-195 2.6.21.7-2.fc8xen #1 SMP Fri Feb 15 12:34:28 EST 2008 x86_64 x86_64 x86_64 GNU/Linux
+              make TARGET=linux26
+              cp haproxy /usr/local/sbin/
+              cp haproxy /usr/sbin/
+    3.  Configuration
+             Open a config file ( at present it is blank)
+             vi /etc/haproxy.cfg 
+-----------------Put the following content in it. Change the Ip as per requirement.-----------------
+global
+log 127.0.0.1 local0
+log 127.0.0.1 local1 notice
+maxconn 48000
+# user haproxy
+# group haproxy
+daemon
+nbproc 1
+
+defaults
+log global
+option httplog
+mode tcp
+option httpclose
+# Remove requests from the queue if people press stop button
+option abortonclose
+# Try to connect this many times on failure
+retries 3
+# If a client is bound to a particular backend but it goes down,
+# send them to a different one
+option redispatch
+monitor-uri /haproxy-ping
+
+timeout connect 7s
+timeout queue 300s
+timeout client 300s
+timeout server 300s
+
+# Enable status page at this URL, on the port HAProxy is bound to
+stats enable
+stats uri /haproxy-status
+stats auth admin:qwer@123
+stats refresh 30s
+stats realm Haproxy statistics
+
+listen http-port80 *:80
+mode http
+reqirep ^(accept:\ .*)(http://www.wapforum.org/xhtml,)(.*) \1"http://www.wap forum.org/xhtml",\3
+option forwardfor except 172.23.1.10
+balance roundrobin
+server OPX-VPC-Service-01 172.23.2.130:80 maxconn 512 check
+server OPX-VPC-Service-02 172.23.2.129:80 maxconn 512 check
+
+
+listen http-port81 127.0.0.1:81
+mode http
+reqirep ^(accept:\ .*)(http://www.wapforum.org/xhtml,)(.*) \1"http://www.wap forum.org/xhtml",\3
+option forwardfor except 127.0.0.1
+# reqadd X-Forwarded-Proto:\ https
+balance roundrobin
+server OPX-VPC-Service-01 172.23.2.130:80 maxconn 512 check
+server OPX-VPC-Service-02 172.23.2.129:80 maxconn 512 check
+;===============================================================================================
+   4. Enable HAProxy Log
+      Update system log location as show. This is to avoid root partition from getting full. 
+      Log anything (except mail) of level info or higher. 
+      Don't log private authentication messages!
+*.info;mail.none;authpriv.none;cron.none; /mnt/log/messages
+     Add following lines to /etc/rsyslog.conf and create directory /mnt/log/haproxy/
+#HAProxy Log
+local0.*                                                    /mnt/log/haproxy/haproxy.log
+     Go to file vi /etc/sysconfig/rsyslog 
+ SYSLOGD_OPTIONS="-m 0 -r"
+  5. Start HAProxy as service
+        vim /etc/init.d/haproxy
+-----------------Put the following content in it.-------------------------------------------
+
+#!/bin/sh
+#
+# chkconfig: - 85 15
+# description: HA-Proxy is a TCP/HTTP reverse proxy which is particularly suited \
+# for high availability environments.
+# processname: haproxy
+# config: /etc/haproxy.cfg
+# pidfile: /var/run/haproxy.pid
+# Source function library.
+if [ -f /etc/init.d/functions ]; then
+. /etc/init.d/functions
+elif [ -f /etc/rc.d/init.d/functions ] ; then
+. /etc/rc.d/init.d/functions
+else
+exit 0
+fi
+# Source networking configuration.
+. /etc/sysconfig/network
+# Check that networking is up.
+[ ${NETWORKING} = "no" ] && exit 0
+[ -f /etc/haproxy.cfg ] || exit 1
+RETVAL=0
+start() {
+/usr/sbin/haproxy -c -q -f /etc/haproxy.cfg
+if [ $? -ne 0 ]; then
+echo "Errors found in configuration file."
+return 1
+fi
+echo -n "Starting HAproxy: "
+daemon /usr/sbin/haproxy -D -f /etc/haproxy.cfg -p /var/run/haproxy.pid
+RETVAL=$?
+echo
+[ $RETVAL -eq 0 ] && touch /var/lock/subsys/haproxy
+return $RETVAL
+}
+stop() {
+echo -n "Shutting down HAproxy: "
+killproc haproxy -USR1
+RETVAL=$?
+echo
+[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/haproxy
+[ $RETVAL -eq 0 ] && rm -f /var/run/haproxy.pid
+return $RETVAL
+}
+restart() {
+/usr/sbin/haproxy -c -q -f /etc/haproxy.cfg
+if [ $? -ne 0 ]; then
+echo "Errors found in configuration file, check it with 'haproxy check'."
+return 1
+fi
+stop
+start
+}
+reload(){
+haproxy -f /etc/haproxy.cfg -p /var/run/haproxy.pid -sf $(cat /var/run/haproxy.pid)
+if [ $? -ne 0 ]; then
+echo "Errors found in configuration file, check it with 'haproxy check'."
+return 1
+stop
+start
+fi
+# stop
+# start
+}
+check() {
+/usr/sbin/haproxy -c -q -V -f /etc/haproxy.cfg
+}
+rhstatus() {
+status haproxy
+}
+condrestart() {
+[ -e /var/lock/subsys/haproxy ] && restart || :
+}
+# See how we were called.
+case "$1" in
+start)
+start
+;;
+stop)
+stop
+;;
+restart)
+restart
+;;
+reload)
+reload
+;;
+condrestart)
+condrestart
+;;
+status)
+rhstatus
+;;
+check)
+check
+;;
+*)
+echo $"Usage: haproxy {start|stop|restart|reload|condrestart|status|check}"
+RETVAL=1
+esac
+exit $RETVAL
+ 
+========================================================================================
+ 6. Add the haproxy in start up.
+chkconfig --add haproxy 
+chkconfig haproxy on
+=========================================================================================
+++++++++++++++++++++++++++
+Stunnel Documentation:-
+++++++++++++++++++++++++++
+  1. Install following dpendencies:
+yum install rpm-build
+yum install openssl-devel
+cd /usr/src/redhat/SOURCES
+Download tar package of stunnel and xforwarded-for.diff file 
+tar -zxvf  stunnel-4.56.tar.gz 
+cd stunnel-4.56
+ 2. Apply x-forwarding patch for stunnel:
+patch -p1 < ../stunnel-4.56-xforwarded-for.diff 
+vim tools/stunnel.spec 
+Change line no 8
+from "Copyright: GPL"  to "License: GPL"
+
+Change line no 67
+%doc COPYING COPYRIGHT.GPL README ChangeLog doc/stunnel.html doc/en/transproxy.txt doc/en/VNC_StunnelHOWTO.html
+to
+%doc COPYING COPYRIGHT.GPL README ChangeLog doc/stunnel.html doc/en/VNC_StunnelHOWTO.html
+3. Rename the existing stunnel-4.56.tar.gz to some other name  e.g. stunnel-4.56.tar.gz.1
+    Now, Create tar.gz for creating rpm  
+tar -zcvf stunnel-4.56.tar.gz stunnel-4.56
+    Create RPM's for stunnel patch with x-forwarding
+rpmbuild -ta stunnel-4.56.tar.gz
+     Rpm's will be created in /usr/src/redhat/RPMS/x86_64 directory
+     Following rpm is created : stunnel-4.56-1.x86_64.rpm
+     Install rpm :
+rpm -ivh stunnel-4.56-1.x86_64.rpm
+    Create stunnel.conf file as shown ( Copy paste content)
+vim /etc/stunnel/stunnel.conf
+-----------------Put the following content in it.-------------------------------------------
+
+; *****************************************************************************
+; * Service Defaults (may also be specified in individual service sections) *
+; *****************************************************************************
+; Certificate/key is needed in server mode and optional in client mode
+cert = /etc/stunnel/opx_opera_com.crt
+key = /etc/stunnel/opx_opera_com.key
+pid=/var/run/stunnel/stunnel.pid
+sslVersion = all
+options = NO_SSLv2
+; Workaround for Eudora bug
+;options = DONT_INSERT_EMPTY_FRAGMENTS
+setuid = root
+setgid = root
+socket = l:TCP_NODELAY=1
+socket = r:TCP_NODELAY=1
+output = /var/log/stunnel.log
+; The following options provide additional security at some performance penalty
+; Default ECDH/DH parameters are strong/conservative, so it is quite safe to
+; comment out these lines in order to get a performance boost
+options = SINGLE_ECDH_USE
+options = SINGLE_DH_USE
+; *****************************************************************************
+; * Service Definitions (remove all services for inetd mode) *
+; *****************************************************************************
+; Example SSL server mode services
+; Example SSL front-end to a web server
+[https]
+accept = 443
+connect = 81
+xforwardedfor=yes
+; "TIMEOUTclose = 0" is a workaround for a design flaw in Microsoft SSL
+; It does not use SSL close-notify alert designed to prevent truncation attacks
+TIMEOUTclose = 0
+ ;vim:ft=dosini
+=========================================================================
+Now changed the init script of stunnel for better start up
+rm -rf /etc/init.d/stunnel
+vim /etc/init.d/stunnel
+-----------------Put the following content in it.-------------------------------------------
+#!/bin/bash
+#
+# Init Script to run stunnel in daemon mode at boot time.
+#
+# Author: Riccardo Riva - RPM S.r.l.
+# Revision 1.0 - 2010 November, 11
+#====================================================================
+# Run level information:
+#
+# chkconfig: 2345 99 99
+# description: Secure Tunnel
+# processname: stunnel
+#
+# Run "/sbin/chkconfig --add stunnel" to add the Run levels.
+# This will setup the symlinks and set the process to run at boot.
+#====================================================================
+#====================================================================
+# Paths and variables and system checks.
+# Source function library
+. /etc/rc.d/init.d/functions
+# Check that networking is up.
+#
+[ ${NETWORKING} ="yes" ] || exit 0
+# Path to the executable.
+#
+SEXE=/usr/sbin/stunnel
+# Path to the configuration file.
+#
+CONF=/etc/stunnel/stunnel.conf
+
+# Check the configuration file exists.
+#
+if [ ! -f $CONF ] ; then
+echo "The configuration file cannot be found!"
+exit 0
+fi
+# Path to the lock file.
+#
+LOCK_FILE=/var/lock/subsys/stunnel
+#====================================================================
+# Run controls:
+prog=$"stunnel"
+RETVAL=0
+# Start stunnel as daemon.
+#
+start() {
+if [ -f $LOCK_FILE ]; then
+echo "stunnel is already running!"
+exit 0
+else
+echo -n $"Starting $prog: "
+$SEXE $CONF
+fi
+RETVAL=$?
+[ $RETVAL -eq 0 ] && success
+echo
+[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+return $RETVAL
+}
+# Stop stunnel.
+#
+stop() {
+if [ ! -f $LOCK_FILE ]; then
+echo "stunnel is not running!"
+exit 0
+else
+echo -n $"Shutting down $prog: "
+killproc stunnel
+RETVAL=$?
+[ $RETVAL -eq 0 ]
+rm -f $LOCK_FILE
+echo
+return $RETVAL
+fi
+}
+# See how we were called.
+case "$1" in
+start)
+start
+;;
+stop)
+stop
+;;
+restart)
+stop
+start
+;;
+condrestart)
+if [ -f $LOCK_FILE ]; then
+stop
+start
+RETVAL=$?
+fi
+;;
+status)
+status stunnel
+RETVAL=$?
+;;
+*)
+echo $"Usage: $0 {start|stop|restart|condrestart|status}"
+RETVAL=1
+esac
+exit $RETVAL
+<code>#--- End of file ---</code>
+ 
+===========================================================================================
+ 
