@@ -46,17 +46,17 @@ timeout server 300s
 # Enable status page at this URL, on the port HAProxy is bound to
 stats enable
 stats uri /haproxy-status
-stats auth admin:qwer@123
+stats auth admin:Password@123
 stats refresh 30s
 stats realm Haproxy statistics
 
 listen http-port80 *:80
 mode http
 reqirep ^(accept:\ .*)(http://www.wapforum.org/xhtml,)(.*) \1"http://www.wap forum.org/xhtml",\3
-option forwardfor except 172.23.1.10
+option forwardfor except 192.168.1.1
 balance roundrobin
-server OPX-VPC-Service-01 172.23.2.130:80 maxconn 512 check
-server OPX-VPC-Service-02 172.23.2.129:80 maxconn 512 check
+server Test-Service-01 192.168.2.1:80 maxconn 512 check
+server Test-Service-02 192.168.2.2:80 maxconn 512 check
 
 
 listen http-port81 127.0.0.1:81
@@ -65,8 +65,8 @@ reqirep ^(accept:\ .*)(http://www.wapforum.org/xhtml,)(.*) \1"http://www.wap for
 option forwardfor except 127.0.0.1
 # reqadd X-Forwarded-Proto:\ https
 balance roundrobin
-server OPX-VPC-Service-01 172.23.2.130:80 maxconn 512 check
-server OPX-VPC-Service-02 172.23.2.129:80 maxconn 512 check
+server Test-Service-01 192.168.2.1:80 maxconn 512 check
+server Test-Service-02 192.168.2.2:80 maxconn 512 check
 ;===============================================================================================
    4. Enable HAProxy Log
       Update system log location as show. This is to avoid root partition from getting full. 
